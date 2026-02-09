@@ -95,17 +95,8 @@ abstract class File
             Utils::err('result');
             Utils::err($result);
 
-/*
-    file: {
-      id: '6987eeca66cffffaa300dc57',
-      size: 625,
-      key: 'EgKLi5OdnAem4hFzdlSzsLLSLsjr3aUy9KcsIQ/9e/Fyiuxe6X6uJlJ3qhfvqDRr',
-      iv: '1u6ydWGnt3AteD+Q',
-      tag: 'I+5KoUY2yybV7LC0nK94QQ=='
-    }*/
 
         return ['status' => "Ok"];
-        // find this pux (in the safe?)
     }
     
 
