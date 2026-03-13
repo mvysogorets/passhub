@@ -155,3 +155,17 @@ define('SHARING_CODE_TTL', 48*60*60);
 
 // white-label login page 
 // define('LOGIN_PAGE', "views/login.html");
+
+// ** CrowdStrike SIEM Integration **
+// Enable CrowdStrike SIEM connector for IAM audit events
+// define('CROWDSTRIKE_SIEM_ENABLED', true);
+
+// CrowdStrike API endpoint (default is production)
+// define('CROWDSTRIKE_API_URL', 'https://api.crowdstrike.com');
+// For US-2: define('CROWDSTRIKE_API_URL', 'https://api.us-2.crowdstrike.com');
+// For EU-1: define('CROWDSTRIKE_API_URL', 'https://api.eu-1.crowdstrike.com');
+
+// CrowdStrike API credentials (OAuth2 client credentials)
+// Create an API client in CrowdStrike Falcon console with 'Event streams' read permissions
+// define('CROWDSTRIKE_CLIENT_ID', 'your_client_id_here');
+// define('CROWDSTRIKE_CLIENT_SECRET', 'your_client_secret_here');
