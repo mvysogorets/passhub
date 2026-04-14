@@ -121,7 +121,7 @@ class Puid
             'currentSafe' => null
         ];
   
-        if (defined('LDAP') || defined('AZURE')) {
+        if (defined('LDAP') || defined('AZURE') || defined('GOOGLE_IAM')) {
             $email = $_SESSION['email'];
             $userprincipalname = $_SESSION['userprincipalname'];
         } else if (defined('MAIL_DOMAIN')) {

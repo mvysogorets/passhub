@@ -197,7 +197,7 @@ class User
     public function isSiteAdmin($create_if_first = false) {
 
         //LDAP:
-        if( (defined('LDAP') || defined('AZURE')) && isset($_SESSION['admin']) && ($_SESSION['admin'] == true)) {
+        if( (defined('LDAP') || defined('AZURE') || defined('GOOGLE_IAM')) && isset($_SESSION['admin']) && ($_SESSION['admin'] == true)) {
             return true;
         }
 
@@ -458,7 +458,7 @@ class User
         } else {
             $data['active_folder'] = 0;
         }
-        if (defined('MAIL_DOMAIN') || defined('LDAP')) {
+        if (defined('MAIL_DOMAIN') || defined('LDAP') || defined('GOOGLE_IAM')) {
             $data['shareModal'] = "#shareByMailModal";
         } else {
             $data['shareModal'] = "#safeShareModal";
@@ -855,7 +855,8 @@ class User
                         'maxFileSize' => MAX_FILE_SIZE,
                         'price' => PREMIUM[0]['PRICE']
                     ];
-                    $result['plan'] = 'FREE';
+                    // $result['plan'] = 'FREE';
+                    $result['plan'] = $this->profile->plan;
                     return $result;
                 }
             }
@@ -1482,6 +1483,17 @@ class User
         }
         Utils::err('LDAP: no userprincipalname in user profile');
         return "not bound";
+    }
+
+    public function checkGoogleIamAccess() {
+        if (!isset($this->profile)) {
+            $this->getProfile();
+        }
+        if (isset($this->profile->userprincipalname)) {
+            $r = GoogleIam::checkAccess($this->profile->userprincipalname);
+            return $r;
+        }
+        return false;
     }
 }
 
