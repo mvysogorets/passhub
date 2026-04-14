@@ -1,13 +1,13 @@
 {
     "require": {
-        "google/apiclient": "^2.18",
         "wwpass/apiclient": "^4.0",
-        "aws/aws-sdk-php": "^3.342",
-        "twig/twig": "^3.20",
-        "stripe/stripe-php": "^17.1",
+        "google/apiclient": "^2.18",
+        "microsoft/microsoft-graph": "^1.87",
+        "aws/aws-sdk-php": "^3.348",
+        "twig/twig": "^3.21",
+        "stripe/stripe-php": "^17.3",
         "mailjet/mailjet-apiv3-php": "^1.6",
-        "mongodb/mongodb": "^1.15",
-        "microsoft/microsoft-graph": "^1.87"
+        "mongodb/mongodb": "^2.1"
     },
     "autoload": {
         "psr-4": {
