@@ -259,21 +259,10 @@ if (array_key_exists('wwp_status', $_REQUEST) && ( $_REQUEST['wwp_status'] != 20
 }
 
 if (defined('PUBLIC_SERVICE')) {
-    require_once 'src/localized-template.php';
 
-    include_once 'src/policy.php';
-    if (defined('LOGIN_PAGE')) {
-        $login_template = LocalizedTemplate::factory(LOGIN_PAGE);
-        $login_template
-            ->add('csrf', Csrf::get())
-            ->add('header_secondary', "")
-            ->add('main_class', "")
-
-            ->render();
-    }
+    echo PassHub\Pub::render_login();
     exit();
 } 
-
 
 $background_image = "url('public/img/formentera-beach.jpeg')";
 if (defined('LOGIN_BACKGROUND')) {
