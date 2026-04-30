@@ -6,3 +6,6 @@ node_modules/
 public/js/dist
 helpers
 tests_output
+*.tgz
+passhub-backend/*
+
