@@ -3,6 +3,5 @@ test_output/
 views/cache
 vendor/
 node_modules/
-public/js/dist
 helpers
 tests_output

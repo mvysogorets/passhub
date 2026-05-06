@@ -23,15 +23,15 @@ class MongoSessionHandler implements \SessionHandlerInterface
         $this->collection = $mng->phpsession;
         // $this->mng = $mng;
     }
-    public function open($_save_path, $_name)
+    public function open(string $path, string $name): bool
     {
         return true;
     }
-    public function close()
+    public function close(): bool
     {
         return true;
     }
-    public function read($id)
+    public function read(string $id): string|false
     {
         $cursor = $this->collection->find(['_id' => $id]);
 
@@ -47,7 +47,7 @@ class MongoSessionHandler implements \SessionHandlerInterface
         exit("internal error sessions 52"); //multiple PUID records;
 
     }
-    public function write($id, $data)
+    public function write(string $id, string $data): bool
     {
         $session = [
             '$set' => [
@@ -63,7 +63,7 @@ class MongoSessionHandler implements \SessionHandlerInterface
             return false;
         }
     }
-    public function destroy($id)
+    public function destroy(string $id): bool
     {
         try {
             $result = $this->collection->deleteOne(['_id' => $id]);
@@ -75,13 +75,13 @@ class MongoSessionHandler implements \SessionHandlerInterface
     }
 
     
-    public function gc($maxlifetime)
+    public function gc(int $maxlifetime): int|false
     {
         $lastAccessed = new \MongoDB\BSON\UTCDateTime(intval(floor((microtime(true) - $maxlifetime) * 1000)));
         try {
             Utils::err("Removing any sessions older than {$lastAccessed}");
             $result = $this->collection->deleteMany(['last_accessed' => ['$lt' => $lastAccessed]]);
-            return true;
+            return $result->getDeletedCount();
         } catch (MongoDBException $e) {
             Utils::err("Error removing sessions older than {$lastAccessed}: {$e->getMessage()}");
             return false;
