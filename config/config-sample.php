@@ -142,6 +142,31 @@ define(
 );
 */
 
+// Google Workspace / Cloud Identity IAM
+
+/*
+define(
+    'GOOGLE_IAM', [
+
+    // OAuth 2.0 Client ID (Web application type, from Google Cloud Console)
+    'client_id' => "XXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com",
+
+    // OAuth 2.0 Client Secret
+    'client_secret' => "GOCSPX-XXXXXXXXXXXXXXXXXXXXXXXXXX",
+
+    // Path to service account JSON key file (with domain-wide delegation enabled)
+    'service_account_file' => "/etc/passhub/google-service-account.json",
+
+    // Google Workspace admin email (used for domain-wide delegation impersonation)
+    'admin_email' => "admin@yourcompany.com",
+
+    // Google Group emails for user and admin access
+    'user_group' => "passhub-users@yourcompany.com",
+    'admin_group' => "passhub-admins@yourcompany.com",
+    ]
+);
+*/
+
 // if LDAP is not defined: allowed mail domains, space separated
 define('MAIL_DOMAIN', "yourcompany.com domain2.com ");
 

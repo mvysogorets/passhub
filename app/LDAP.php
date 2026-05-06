@@ -1,14 +1,14 @@
 <?php
 
 /**
- * Utils.php
+ * LDAP.php
  *
  * PHP version 7
  *
  * @category  Password_Manager
  * @package   PassHub
  * @author    Mikhail Vysogorets <m.vysogorets@wwpass.com>
- * @copyright 2016-2020 WWPass
+ * @copyright 2016-2026 WWPass
  * @license   http://opensource.org/licenses/mit-license.php The MIT License
  */
 
@@ -18,7 +18,7 @@ namespace PassHub;
 class LDAP 
 {
 
-    static function isGoogleWorkspace() {
+    private static function isGoogleWorkspace() {
         if(isset(LDAP['url'])  && str_contains(strtolower(LDAP['url']), 'ldap.google.com')) {
             return true;
         }
@@ -128,12 +128,12 @@ class LDAP
     }
 
     private static function isInAdminGroup($user) {
-        if (!isset($user['memberof']['count'])) {
+        if (!isset($user['memberOf']['count'])) {
             return false;
         }
-        $group_count = $user['memberof']['count'];
+        $group_count = $user['memberOf']['count'];
         for($g = 0; $g < $group_count; $g++ ) {
-            if($user['memberof'][strval($g)] == LDAP['admin_group']) {
+            if($user['memberOf'][strval($g)] == LDAP['admin_group']) {
                 return true;
             }
         }
@@ -161,7 +161,7 @@ class LDAP
             $group_filter = "(|{$group_filter})";
 
         } else {
-            $group_filter = "(memberof=".LDAP['group'].")";
+            $group_filter = "(memberOf=".LDAP['group'].")";
         }
 
 /*
@@ -239,7 +239,7 @@ class LDAP
                 }
             }
         }
-
+        ldap_close($ds);
         Utils::err(["user_upns" => $user_upns, "admin_upns" => $admin_upns]);
         return ["user_upns" => $user_upns, "admin_upns" => $admin_upns];
     }
@@ -262,7 +262,7 @@ class LDAP
 
 
 
-        $group_filter = "(memberof=".LDAP['group'].")";
+        $group_filter = "(memberOf=".LDAP['group'].")";
       
         $ldap_filter = "(&{$user_filter}{$group_filter})";
         
@@ -302,15 +302,15 @@ class LDAP
 #                Utils::err('info');
 #                Utils::err($info);
 
-#                Utils::err('memberof');
-            $memberof =  $info['0']['memberof'];
+#                Utils::err('memberOf');
+            $memberOf =  $info['0']['memberOf'];
 
-#                Utils::err($memberof);
+#                Utils::err($memberOf);
 
-            $group_count = $memberof['count'];
+            $group_count = $memberOf['count'];
             Utils::err('group count ' . $group_count);
             for( $i = 0; $i < $group_count; $i++) {
-                $group = $memberof[strval($i)];
+                $group = $memberOf[strval($i)];
 #                    Utils::err('group ' . $i . ' ' . $group);
                 if($group == LDAP['admin_group']) {
                     Utils::err('admin group member');
@@ -319,7 +319,7 @@ class LDAP
                 }
             }
         }
-
+        ldap_close($ds);
         if ($user_enabled) {
             return true;
         }

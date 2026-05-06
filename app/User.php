@@ -126,6 +126,9 @@ class User
     public const ROLE_EDITOR = 'editor';   
     public const ROLE_ADMINISTRATOR = 'administrator';   
     public $profile;
+    public $mng;
+    public $UserID;
+    public $_id;
 
     function __construct($mng, $UserID) {
         $this->mng = $mng;

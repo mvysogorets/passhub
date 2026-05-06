@@ -15,6 +15,9 @@ namespace PassHub;
 
 class Puid 
 {
+    private $mng;
+    private $PUID;
+
     function __construct($mng, $PUID) {
         $this->mng = $mng;
         $this->PUID = $PUID;
