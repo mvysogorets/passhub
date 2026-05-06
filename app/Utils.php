@@ -31,6 +31,19 @@ class Utils
         return $twig->render($template, $context);        
     }
 
+    public static function render_react(string $template, array $context = []): string
+    {
+        $loader = new \Twig\Loader\FilesystemLoader('frontend');
+        $twig = new \Twig\Environment(
+            $loader, 
+            [
+                // 'cache' => 'views/cache',
+                'cache' => false,
+            ]
+        );
+        return $twig->render($template, $context);        
+    }
+
     public static function log($message, $logname = "passhub", $logext = "log") {
 
         if(is_array($message)) {
@@ -183,19 +196,6 @@ class Utils
         $ticket = $_SESSION['wwpass_ticket'];
         $privKey = $wwc->readData($ticket);
         return $privKey;
-    }
-
-    public static function render_react(string $template, array $context = []): string
-    {
-        $loader = new \Twig\Loader\FilesystemLoader('frontend');
-        $twig = new \Twig\Environment(
-            $loader, 
-            [
-                // 'cache' => 'views/cache',
-                'cache' => false,
-            ]
-        );
-        return $twig->render($template, $context);        
     }
 
 
