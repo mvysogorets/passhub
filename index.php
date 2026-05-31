@@ -111,6 +111,11 @@ try {
             } 
             
             if (defined('PUBLIC_SERVICE') && (PUBLIC_SERVICE == true)) {
+                if (!isset($_SESSION['backupAdviseShown'])) {
+                    header("Location: backup-your-key.php");
+                    exit();
+                } 
+
                 if (!isset($_SESSION['TermsAccepted'])) {
                     header("Location: accept_terms.php");
                     exit();
