@@ -144,6 +144,49 @@ class Item
 
         $js = json_decode($data);
         if ($js !== null) {
+
+            // history
+            $cursor = $this->mng->safe_items->find(['_id' => $this->_id]);
+            $result = $cursor->toArray();
+
+            if(count($result)) {
+                $old_record = $result[0];
+                Utils::err("old_record");
+                Utils::err($old_record);
+
+                if(property_exists($old_record,"iv") && 
+                    property_exists($old_record,"data") && 
+                    property_exists($old_record,"tag") && 
+                    property_exists($old_record,"lastModified") && 
+                    property_exists($old_record,"version")) {
+                    $history_record = [
+                        "iv" => $old_record["iv"], 
+                        "data" => $old_record["data"], 
+                        "tag" => $old_record["tag"],
+                        "lastModified" => $old_record["lastModified"],
+                        "version" => $old_record["version"]
+                    ];
+                    Utils::err("history_record");
+                    Utils::err($history_record);
+                    $history = [];
+                    if(property_exists($old_record,"history")) {
+                        Utils::err("history found");
+                        $history = $old_record["history"];
+
+                        Utils::err("history");
+                        Utils::err(gettype($history));
+
+                        $history = (array) $old_record["history"];
+
+                        Utils::err("(array) history");
+                        Utils::err(gettype($history));
+                        Utils::err($history);
+                    }
+                    array_unshift($history, $history_record);
+                    $this->mng->safe_items->updateOne(['_id' => $this->_id], ['$set' => ['history' => $history] ]);
+                }
+            }
+
             if (isset($js->version) && (($js->version == 3) || ($js->version == 4)  || ($js->version == 5)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
                 $result = $this->mng->safe_items->updateOne(
                     ['_id' => $this->_id], 
@@ -261,6 +304,10 @@ class Item
                     'lastModified' =>Date('c'),
                     'version' => $js->version
                 ];
+                if (isset($js->history)) {
+                    $record['history'] = $js->history;
+                }
+
                 if (isset($js->note)) {
                     $record['note'] = $js->note;
                 }

@@ -380,11 +380,13 @@ class User
                 "user_role" => $safe->user_role
             ];
 
-            if(property_exists($safe,"version")) {
+            if( property_exists($safe,"version") && ($safe->version == 3)) {
+		
                 $safe_entry["version"] = $safe->version; 
                 $safe_entry["eName"] = $safe->eName; 
                 $safe_entry["name"] = "error";
             }
+
             if(property_exists($safe,"group")) {
                 $safe_entry["group"] = $safe->group;
             }
