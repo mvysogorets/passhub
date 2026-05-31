@@ -72,6 +72,16 @@ class Utils
         ) {
             $record = array_merge([ 'timestamp' => Date('c')], $message);
             $mng->audit->insertOne($record);
+            
+            // Send to CrowdStrike SIEM if configured
+            try {
+                $crowdStrikeSiem = new CrowdStrikeSiem();
+                $crowdStrikeSiem->sendAuditEvent($record);
+            } catch (Exception $e) {
+                // Log error but don't fail the audit logging
+                self::err("CrowdStrike SIEM integration error: " . $e->getMessage());
+            }
+            
         } else {
             self::err("audit_log: bad message");
             self::err($message);

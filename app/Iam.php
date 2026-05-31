@@ -122,7 +122,7 @@ class Iam
         if( defined('LDAP')  
             && isset(LDAP['mail_registration']) 
             && (LDAP['mail_registration'] == true)) {
-                $mail_domains = [LDAP['domain']];
+                $mail_domains = LDAP::getMailDomains();
         } else {
             $mail_domains = preg_split("/[\s,]+/", strtolower(MAIL_DOMAIN));
         }
@@ -279,10 +279,12 @@ class Iam
             ]);
         $user_array = $cursor->toArray();
 
-        if(defined('AZURE') || defined ('LDAP')) {
+        if(defined('AZURE') || defined ('LDAP') || defined('GOOGLE_IAM')) {
             $lu = null;
             if(defined('AZURE')) {
                 $lu = Azure::getUsers();
+            } else if(defined('GOOGLE_IAM')) {
+                $lu = GoogleIam::getUsers();
             } else {
                 $lu = LDAP::getUsers();
             }
@@ -428,7 +430,7 @@ class Iam
         if(defined('LICENSED_USERS')) {
             $result['LICENSED_USERS'] = LICENSED_USERS;
         }
-        if(defined('LDAP') || defined('AZURE')) {
+        if(defined('LDAP') || defined('AZURE') || defined('GOOGLE_IAM')) {
             $result['LDAP'] = true;
         }
         return $result;

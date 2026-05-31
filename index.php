@@ -85,10 +85,15 @@ try {
 
             if(defined('AZURE')) {
                 PassHub\Azure::Authenticate();
-    		exit();
+    		    exit();
             }
 
-            if (defined('LDAP') 
+            if(defined('GOOGLE_IAM')) {
+                PassHub\GoogleIam::Authenticate();
+                exit();
+            }
+
+            if (defined('LDAP')
                 && ( !isset(LDAP['mail_registration']) 
                     || (LDAP['mail_registration'] !== true))
             ) {
@@ -128,7 +133,7 @@ try {
                 Utils::err('Should not happen idx 129');
                 exit();
             }
-	    if(defined('CREATE_USER')) {
+	        if(defined('CREATE_USER')) {
                 $_SESSION['CREATE_USER'] = true;
                 echo Utils::render_react('index.html', ['verifier' => Csrf::get()]); 
               	exit();
@@ -136,17 +141,34 @@ try {
             Utils::showCreateUserPage();
             exit();
 
-        } else if ($result['status'] != "Ok") {
-            Utils::err("multiple PUID records " . $_SESSION['PUID']);
-            exit($result['status']);//multiple PUID records;
-        } else {
-	    $UserID = $result['UserID'];
+            } else if ($result['status'] != "Ok") {
+                Utils::err("multiple PUID records " . $_SESSION['PUID']);
+                exit($result['status']);//multiple PUID records;
+         } else {
+            $UserID = $result['UserID'];
             $user = new User($mng, $UserID);
             $user->getProfile();
             $_SESSION["UserID"] = $UserID;
             $_SESSION['email'] = $user->profile->email;
             if(defined('AZURE')) {
                 if(!$user->checkAzureAccess()) {
+                    $_SESSION = array();
+                    session_destroy();
+                    echo Utils::render(
+                        'error_page.html', 
+                        [
+                            // layout
+                            'narrow' => true, 
+                            'hide_logout' => true,
+                            'PUBLIC_SERVICE' => defined('PUBLIC_SERVICE') ? PUBLIC_SERVICE : false,
+                            'header' => 'Access denied',
+                            'text' => 'Please contact your system administrator'
+                        ]
+                    );
+                    exit();
+                }
+            } else if(defined('GOOGLE_IAM')) {
+                if(!$user->checkGoogleIamAccess()) {
                     $_SESSION = array();
                     session_destroy();
                     echo Utils::render(
@@ -215,7 +237,7 @@ try {
         Utils::errorPage("The account is disabled. Please contact your system administrator");
     }
 
-    if ( !defined('LDAP') && !defined('AZURE') && (defined('PUBLIC_SERVICE') || defined('MAIL_DOMAIN')) && !isset($_SESSION['later'])) {
+    if ( !defined('LDAP') && !defined('AZURE') && !defined('GOOGLE_IAM') && (defined('PUBLIC_SERVICE') || defined('MAIL_DOMAIN')) && !isset($_SESSION['later'])) {
 //        if (defined('MAIL_DOMAIN') && !isset($_SESSION['later'])) {
         if ($user->profile->email == "") {
             if (!$puid->isValidated()) {

@@ -254,9 +254,16 @@ class Company
             ]);
         $user_array = $cursor->toArray();
 
-        if(defined('LDAP')) {
+        if(defined('LDAP') || defined('AZURE') || defined('GOOGLE_IAM')) {
 
-            $lu = LDAP::getUsers();
+            $lu = null;
+            if(defined('AZURE')) {
+                $lu = Azure::getUsers();
+            } else if(defined('GOOGLE_IAM')) {
+                $lu = GoogleIam::getUsers();
+            } else {
+                $lu = LDAP::getUsers();
+            }
             $ldap_users = $lu["user_upns"];
             $ldap_admins = $lu["admin_upns"];
 

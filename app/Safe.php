@@ -24,6 +24,8 @@ class Safe
     public $confirm_req;
     public $user_role;
     public $user_count;
+    public $version;
+    public $eName;
 
     function __construct($row) {
 /*
