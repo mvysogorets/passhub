@@ -94,6 +94,15 @@ class Utils
                 // Log error but don't fail the audit logging
                 self::err("CrowdStrike SIEM integration error: " . $e->getMessage());
             }
+
+            // Send to Microsoft Sentinel if configured
+            try {
+                $sentinelSiem = new MicrosoftSentinelSiem();
+                $sentinelSiem->sendAuditEvent($record);
+            } catch (Exception $e) {
+                // Log error but don't fail the audit logging
+                self::err("Microsoft Sentinel integration error: " . $e->getMessage());
+            }
             
         } else {
             self::err("audit_log: bad message");
