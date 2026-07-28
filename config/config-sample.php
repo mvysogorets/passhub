@@ -181,16 +181,42 @@ define('SHARING_CODE_TTL', 48*60*60);
 // white-label login page 
 // define('LOGIN_PAGE', "views/login.html");
 
-// ** CrowdStrike SIEM Integration **
+// ** CrowdStrike SIEM Integration (Falcon Next-Gen SIEM / LogScale HEC) **
 // Enable CrowdStrike SIEM connector for IAM audit events
 // define('CROWDSTRIKE_SIEM_ENABLED', true);
 
-// CrowdStrike API endpoint (default is production)
-// define('CROWDSTRIKE_API_URL', 'https://api.crowdstrike.com');
-// For US-2: define('CROWDSTRIKE_API_URL', 'https://api.us-2.crowdstrike.com');
-// For EU-1: define('CROWDSTRIKE_API_URL', 'https://api.eu-1.crowdstrike.com');
+// Falcon LogScale HTTP Event Collector ingest URL for your CrowdStrike cloud
+// region, shown alongside the token when you create it (Next-Gen SIEM > Data
+// sources > HTTP Event Collector), e.g.
+// 'https://<your-cid>.ingest.us-1.crowdstrike.com/api/v1/ingest/hec/event'
+// define('CROWDSTRIKE_INGEST_URL', 'https://your-logscale-host/api/v1/ingest/hec/event');
 
-// CrowdStrike API credentials (OAuth2 client credentials)
-// Create an API client in CrowdStrike Falcon console with 'Event streams' read permissions
-// define('CROWDSTRIKE_CLIENT_ID', 'your_client_id_here');
-// define('CROWDSTRIKE_CLIENT_SECRET', 'your_client_secret_here');
+// HEC ingest token
+// define('CROWDSTRIKE_HEC_TOKEN', 'your_hec_ingest_token_here');
+
+// Optional HEC metadata (all default sensibly if omitted)
+// define('CROWDSTRIKE_HEC_SOURCE', 'passhub');
+// define('CROWDSTRIKE_HEC_SOURCETYPE', 'passhub:audit');
+// define('CROWDSTRIKE_HEC_HOST', 'passhub.company.com');
+
+// ** Microsoft Sentinel Integration (Azure Monitor Logs Ingestion API) **
+// Enable Microsoft Sentinel connector for IAM audit events
+// define('MS_SENTINEL_ENABLED', true);
+
+// Azure AD (Entra ID) app registration used for the client-credentials flow.
+// The app registration needs the "Monitoring Metrics Publisher" role on the
+// Data Collection Rule (or the Log Analytics workspace) below.
+// define('MS_SENTINEL_TENANT_ID', 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX');
+// define('MS_SENTINEL_CLIENT_ID', 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX');
+// define('MS_SENTINEL_CLIENT_SECRET', 'your_client_secret_here');
+
+// Data Collection Endpoint (DCE) ingestion URL, e.g.
+// 'https://my-dce-name-xxxx.eastus-1.ingest.monitor.azure.com'
+// define('MS_SENTINEL_DCE_ENDPOINT', 'https://your-dce.ingest.monitor.azure.com');
+
+// Immutable ID of the Data Collection Rule (DCR), e.g. 'dcr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+// define('MS_SENTINEL_DCR_IMMUTABLE_ID', 'dcr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+
+// Stream name declared in the DCR that maps to your custom table
+// (custom tables/streams must end in "_CL")
+// define('MS_SENTINEL_STREAM_NAME', 'Custom-PassHubAuditLogs_CL');
