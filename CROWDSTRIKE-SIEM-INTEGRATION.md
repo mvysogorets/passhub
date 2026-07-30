@@ -1,14 +1,16 @@
 # CrowdStrike SIEM Integration for PassHub
 
-This document explains how to configure and use the CrowdStrike SIEM connector for PassHub IAM audit events.
+This document explains how to configure and use the CrowdStrike connector (`app/CrowdStrikeSiem.php`) for PassHub IAM audit events.
 
 ## Overview
 
-The CrowdStrike SIEM connector automatically forwards all IAM audit events from PassHub to your CrowdStrike Falcon platform for security monitoring and analysis. Events are sent in real-time as they occur, providing comprehensive visibility into user access management activities.
+The CrowdStrike connector forwards all IAM audit events from PassHub to **Falcon Next-Gen SIEM** (built on Falcon LogScale) in real time, using LogScale's **HTTP Event Collector (HEC)** ingest API. Authentication uses a static HEC ingest token — there is no OAuth2 token exchange involved, so setup only requires a URL and a token.
+
+> Earlier revisions of this connector used an OAuth2 client-credentials flow against `api.crowdstrike.com`. That endpoint does not exist for third-party log ingestion — HEC is the supported mechanism, so the connector was rewritten around it.
 
 ## Supported Events
 
-The connector captures all IAM audit events including:
+Same events as the Microsoft Sentinel connector:
 
 - **User Management**: Account creation, deletion, status changes (active/disabled/admin)
 - **Invitations**: User invitations and invitation management
@@ -18,159 +20,123 @@ The connector captures all IAM audit events including:
 
 ## Event Data Structure
 
-Events sent to CrowdStrike include:
+Each call to `sendAuditEvent()` wraps the audit fields in a Splunk HEC-compatible envelope and posts it as JSON:
 
 ```json
 {
-  "timestamp": "2026-03-12T10:30:00Z",
-  "event_type": "iam_audit",
+  "time": 1784304600,
+  "host": "passhub.company.com",
   "source": "passhub",
-  "severity": "high|medium|low",
-  "category": "identity_access_management",
-  "event_data": {
+  "sourcetype": "passhub:audit",
+  "event": {
+    "timestamp": "2026-07-14T10:30:00+00:00",
+    "event_type": "iam_audit",
+    "category": "identity_access_management",
+    "severity": "high|medium|low",
     "actor": "admin@company.com",
     "operation": "deleteAccount",
     "user": "user@company.com",
     "company": "company_id",
-    "group": "group_name"
-  },
-  "metadata": {
+    "group": "group_name",
     "source_ip": "192.168.1.100",
     "user_agent": "Mozilla/5.0...",
-    "session_id": "sess_123456",
-    "server_name": "passhub.company.com"
+    "session_id": "sess_123456"
   }
 }
 ```
 
+Fields with no value (e.g. `group` when the operation isn't group-related) are omitted rather than sent as `null`.
+
 ## Setup Instructions
 
-### 1. CrowdStrike Falcon Console Setup
+### 1. Create a HEC data source in Falcon Next-Gen SIEM
 
-1. Log in to your CrowdStrike Falcon console
-2. Navigate to **Support > API Clients and Keys**
-3. Click **Add new API client**
-4. Configure the API client:
-   - **Client Name**: PassHub SIEM Connector
-   - **Description**: PassHub IAM audit event integration
-   - **Scopes**: Select **Event streams: READ**
-5. Click **Add** and save the generated **Client ID** and **Client Secret**
+1. Log in to the Falcon console and open **Next-Gen SIEM > Data sources** (or, within a LogScale repo, **Settings > Ingest tokens**).
+2. Click **Add source** / **Add new HTTP Event Collector token**.
+3. Configure:
+   - **Name**: `PassHub SIEM Connector`
+   - **Parser**: leave as the default JSON parser (or select `hec` if prompted)
+4. Save and copy the generated **ingest token** — this is shown only once.
+5. Note the **ingest URL** for your CrowdStrike cloud region, e.g.:
+   - `https://<your-cid>.ingest.us-1.crowdstrike.com/api/v1/ingest/hec/event`
+   - `https://<your-cid>.ingest.us-2.crowdstrike.com/api/v1/ingest/hec/event`
+   - `https://<your-cid>.ingest.eu-1.crowdstrike.com/api/v1/ingest/hec/event`
+
+   (The exact hostname is shown alongside the token in the console — use that value rather than guessing the region.)
 
 ### 2. PassHub Configuration
 
-1. Edit your PassHub configuration file (`config/config.php`)
-2. Add the following configuration options:
+Edit your PassHub configuration file (`config/config.php`) and add:
 
 ```php
 // Enable CrowdStrike SIEM connector
 define('CROWDSTRIKE_SIEM_ENABLED', true);
 
-// CrowdStrike API endpoint (choose based on your region)
-define('CROWDSTRIKE_API_URL', 'https://api.crowdstrike.com'); // US-1 (default)
-// define('CROWDSTRIKE_API_URL', 'https://api.us-2.crowdstrike.com'); // US-2
-// define('CROWDSTRIKE_API_URL', 'https://api.eu-1.crowdstrike.com'); // EU-1
+// Falcon LogScale HEC ingest URL (from the console, step 1 above)
+define('CROWDSTRIKE_INGEST_URL', 'https://your-logscale-host/api/v1/ingest/hec/event');
 
-// CrowdStrike API credentials
-define('CROWDSTRIKE_CLIENT_ID', 'your_client_id_here');
-define('CROWDSTRIKE_CLIENT_SECRET', 'your_client_secret_here');
+// HEC ingest token
+define('CROWDSTRIKE_HEC_TOKEN', 'your_hec_ingest_token_here');
+
+// Optional — all default sensibly if omitted
+define('CROWDSTRIKE_HEC_SOURCE', 'passhub');
+define('CROWDSTRIKE_HEC_SOURCETYPE', 'passhub:audit');
+define('CROWDSTRIKE_HEC_HOST', 'passhub.company.com');
 ```
+
+If `CROWDSTRIKE_INGEST_URL` or `CROWDSTRIKE_HEC_TOKEN` is missing, the connector logs an error and disables itself — it never blocks or fails the underlying audit write to MongoDB.
 
 ### 3. Test the Integration
 
-1. Restart your web server after configuration changes
-2. Perform a test IAM operation (e.g., invite a user)
-3. Check PassHub logs (`LOG_DIR/siem-*.log`) for successful transmission messages
-4. Verify events appear in CrowdStrike Falcon under **Investigate > Event Search**
+1. Restart your web server after configuration changes.
+2. Perform a test IAM operation (e.g., invite a user).
+3. Check PassHub logs (`LOG_DIR/siem-*.log`) for a "CrowdStrike SIEM event sent successfully" line.
+4. In the Falcon console, search the repo/log source for `sourcetype=passhub:audit` (or your custom `CROWDSTRIKE_HEC_SOURCETYPE`) to confirm events are arriving.
 
 ## Event Severity Levels
 
-The connector automatically assigns severity levels based on the operation type:
+Same severity mapping as the Microsoft Sentinel connector:
 
-**High Severity:**
-- Account deletion (`deleteAccount`)
-- Admin role assignment (`statusAdmin`)
-- Account disabling (`statusDisabled`)
-- Group deletion (`Delete group`)
-- Invitation deletion (`deleteInvitation`)
+**High Severity:** `deleteAccount`, `statusAdmin`, `statusDisabled`, `Delete group`, `deleteInvitation`
 
-**Medium Severity:**
-- Account activation (`statusActive`)
-- Account creation (`Create account`)
-- Company management (`addCompany`, `setCompanyProfile`)
+**Medium Severity:** `statusActive`, `Create account`, `addCompany`, `setCompanyProfile`
 
-**Low Severity:**
-- User invitations (`invite`)
-- Group operations (add/remove users/safes)
-- Other routine operations
+**Low Severity:** all other operations (invitations, group membership changes, etc.)
 
 ## Error Handling and Monitoring
 
 ### Logging
 
-The connector logs all activities to separate log files:
 - Success: `LOG_DIR/siem-YYMMDD.log`
 - Errors: `LOG_DIR/passhub-YYMMDD.err`
 
-### Error Scenarios
-
-The connector handles various error conditions:
-
-1. **Configuration Errors**: Missing or invalid credentials
-2. **Network Errors**: Connection timeouts or failures
-3. **API Errors**: CrowdStrike API rate limiting or service issues
-4. **Authentication Errors**: Token expiration or invalid credentials
-
-**Important**: SIEM integration failures do not affect PassHub's core audit logging functionality. Events are always stored in the local MongoDB audit collection regardless of SIEM status.
+**Important**: SIEM integration failures do not affect PassHub's core audit logging functionality. Events are always stored in the local MongoDB `audit` collection regardless of CrowdStrike connectivity.
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **Events not appearing in CrowdStrike**
-   - Verify API credentials are correct
-   - Check the appropriate API URL for your region
-   - Ensure the API client has proper permissions
-   - Check PassHub error logs for transmission failures
-
-2. **Authentication failures**
-   - Verify Client ID and Client Secret
-   - Check if API client is active in CrowdStrike console
-   - Ensure proper scopes are assigned
-
-3. **Network connectivity issues**
-   - Verify outbound HTTPS (443) access to CrowdStrike API endpoints
-   - Check proxy/firewall configurations
-   - Test connectivity: `curl -I https://api.crowdstrike.com`
-
-### Debug Mode
-
-To enable detailed logging, monitor the error log file for CrowdStrike-related messages:
-
-```bash
-tail -f /var/log/passhub/passhub-$(date +%y%m%d).err | grep -i crowdstrike
-```
+1. **Events not appearing in Falcon Next-Gen SIEM**
+   - Verify `CROWDSTRIKE_INGEST_URL` matches the host shown next to your HEC token in the console.
+   - Confirm the HEC token hasn't been revoked or regenerated.
+   - Check PassHub error logs for the HTTP status code returned by the ingest endpoint.
+2. **Authentication failures (HTTP 401/403)**
+   - Verify `CROWDSTRIKE_HEC_TOKEN` is correct and active.
+   - Regenerate the token in the console if needed and update `config.php`.
+3. **Malformed event errors (HTTP 400)**
+   - Confirm the payload matches the HEC envelope shape (`time`/`host`/`source`/`sourcetype`/`event`) — this should not occur unless the connector code has been modified.
+4. **Network connectivity issues**
+   - Verify outbound HTTPS (443) access to your ingest host.
+   - Test connectivity: `curl -I https://your-logscale-host`
 
 ## Security Considerations
 
-1. **Credential Protection**: Store CrowdStrike API credentials securely
-2. **Network Security**: Use encrypted connections (TLS/SSL) only  
-3. **Access Control**: Restrict access to configuration files
-4. **Key Rotation**: Regularly rotate API client credentials
-5. **Monitoring**: Monitor for failed authentication attempts
-
-## Support
-
-For issues with this integration:
-
-1. Check PassHub logs for error messages
-2. Verify CrowdStrike API client configuration  
-3. Test network connectivity to CrowdStrike endpoints
-4. Contact your CrowdStrike support team for API-related issues
+1. Store the HEC ingest token securely; it is a bearer credential with no expiry by default — rotate it periodically from the console.
+2. Restrict access to `config/config.php`.
+3. Use TLS (enforced by the ingest endpoint) for all traffic.
+4. Treat the ingest URL/token pair as sensitive — anyone with both can write arbitrary events into your CrowdStrike repo.
 
 ## Version History
 
-- **v1.0**: Initial CrowdStrike SIEM integration
-  - Real-time IAM event forwarding
-  - OAuth2 authentication with token refresh
-  - Configurable severity levels
-  - Comprehensive error handling and logging
+- **v2.0**: Rewritten around Falcon LogScale HTTP Event Collector (HEC)
+  - Static ingest-token authentication, no OAuth2 token refresh needed
+  - Simplified, accurate to CrowdStrike's actual third-party log ingestion API
+- **v1.0**: Initial CrowdStrike SIEM integration (OAuth2 client-credentials, retired)
