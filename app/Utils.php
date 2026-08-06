@@ -382,4 +382,38 @@ class Utils
         }
         return self::sendLocalServer($to, $subject, $body, 'text/html; charset=UTF-8');
     }
+
+    public static function sendTelegramMessage($message) {
+        if(!defined('TELEGRAM_BOT')) {
+            return;
+        }
+        $data = TELEGRAM_BOT['data'];
+        $data['text'] = $message;
+
+        $json = json_encode($data);
+
+        $ch = curl_init(TELEGRAM_BOT['url']);
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $json,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($json)
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+
+        $response = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            Utils::err('cURL Error: ' . curl_error($ch));
+        } else {
+            Utils::err("Response:");
+            Utils::err($response);
+        }
+        curl_close($ch);
+    }
+
 }
