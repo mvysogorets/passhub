@@ -15,124 +15,6 @@
 
 namespace PassHub;
 
-function getPremiumDetails($mng, $UserID) {
-
-    Utils::err('getPremiumDetails');
-
-    $user = new User($mng, $UserID);
-    $profile = $user->getProfile();
-    Utils::err('profile');
-    Utils::err($profile);
-    return [];
-
-}
-
-function getPremiumDetails1($mng, $UserID) {
-
-
-
-
-    $result = [];
-
-    try {
-        $subscriptions = $mng->subscriptions->find([ 'UserID' => $UserID]);
-
-
-        $current_period_end = 0;
-        $active_subscription = true;
-
-        // we want only one subscription for user
-
-        $found = false;
-
-        foreach($subscriptions as $subscription) {
-            if($subscription->current_period_end > time()) {
-                $found = true;
-                $current_period_end = $subscription->current_period_end;
-
-                if($subscription->status == "active") {
-                    $result['autorenew'] = true;
-                }
-    //            Utils::err("susbscription:");
-    //            Utils::err(print_r($subscription, true));
-
-                if(property_exists($subscription, 'charge')) {
-    //                Utils::err("retrieving charge " . $subscription->charge);
-
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $charge = $stripe->charges->retrieve($subscription->charge, []);
-                    Utils::err("charge:");
-                    Utils::err($charge);
-                    $result['receipt_url'] = $charge->receipt_url;
-                } else if(property_exists($subscription, 'latest_invoice')) {
-                    Utils::log("scenario 2", "payment");
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $invoice = $stripe->invoices->retrieve($subscription->latest_invoice, []);
-                    if($invoice->charge) {
-                        $charge = $stripe->charges->retrieve($invoice->charge, []);
-                        $result['receipt_url'] = $charge->receipt_url;
-
-                        $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
-                            "charge" => $invoice->charge,
-                        ]]);
-
-                    }
-                } else {
-                    Utils::log("scenario 3", "payment");
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $s = $stripe->subscriptions->retrieve($subscription->subscription); // subscription ID actually
-                    $invoice = $stripe->invoices->retrieve($s->latest_invoice, []);
-                    $charge = $stripe->charges->retrieve($invoice->charge, []);
-                    if($charge) {
-                        $result['receipt_url'] = $charge->receipt_url;
-                    }
-
-                    $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
-                        "latest_invoice" => $s->latest_invoice,
-                        "charge" => $invoice->charge,
-                    ]]);
-                }
-                $result['expires'] = $current_period_end;  
-            }
-        }
-        if($found) {
-            return $result;
-        }
-
-        $user = new User($mng, $UserID);
-        $profile = $user->getProfile();
-        if(isset($profile['payment_id'])) {
-            $cursor = $mng->payments->find(["csID" => $profile['payment_id']]);
-            $payments = $cursor->ToArray();
-            if(count($payments) == 1) {
-                if(isset($payments[0]['subscription'])) {
-                    Utils::err($payments[0]['subscription']);
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $object = $stripe->subscriptions->retrieve($payments[0]['subscription']);
-                    Utils::err('got subscription');
-                    $r = $mng->subscriptions->insertOne(
-                            [
-                            'UserID' => $payments[0]->UserID,
-                            'subscription' => $object->id,
-                            'customer' => $object->customer,
-                            'current_period_end' => $object->current_period_end,
-                            'status' => $object->status,
-                            'latest_invoice' => $object->latest_invoice, 
-                            ]
-                        );
-                    if($object['current_period_end']  > time()) {
-                        return getPremiumDetails($mng, $UserID);
-                    }
-                }
-            } 
-        }
-        return [];
-    } catch (\Exception $e) {
-        Utils::err("getPremiumDetails exception");
-        Utils::err($e->getMessage());
-        return [];
-    }
-}
 
 class User
 {
@@ -203,8 +85,6 @@ class User
         $res_array = $mng_res->ToArray();
         if (count($res_array) == 1) {
             $apple_subscription = $res_array[0];
-            Utils::err("apple_subscription found:");
-            Utils::err($apple_subscription);
 
             if(property_exists($apple_subscription, 'status') && ($apple_subscription->status == 'active'))  {
                 if(property_exists($apple_subscription, 'current_period_end')) {
@@ -328,6 +208,9 @@ class User
         
             $safe_users = $this->mng->safe_users->find([ 'SafeID' => $row->SafeID])->toArray(); 
             $safe_array[$id]->user_count = count($safe_users);
+            if(property_exists($row, 'sharedAt')) {
+                $safe_array[$id]->sharedAt = $row->sharedAt;
+            }
         } 
 
         $mng_res = $this->mng->group_users->find([ 'UserID' => $this->UserID]);
@@ -414,6 +297,10 @@ class User
                 "users" => $safe->user_count,
                 "user_role" => $safe->user_role
             ];
+            if(property_exists($safe, 'sharedAt')) {
+                $safe_entry['sharedAt'] = $safe->sharedAt;
+            }
+
 
             if( property_exists($safe,"version") && ($safe->version == 3)) {
 		
@@ -438,11 +325,6 @@ class User
         $t0 = microtime(true);
         $this->getProfile();
 
-
-        Utils::err('profile');
-        Utils::err($this->profile);
-
-
         $dt = number_format((microtime(true) - $t0), 3);
         Utils::timingLog("getProfile " . $dt);
         
@@ -466,6 +348,7 @@ class User
 
 //            'safes' => $this->getSafes(),
             'ticket' => $_SESSION['wwpass_ticket'],
+            'lastSeen' => $this->profile->lastSeen,
 //            'plan' => $this->profile->plan
         ];
 
@@ -538,6 +421,8 @@ class User
         $data['desktop_inactivity'] = $this->profile->desktop_inactivity;
         $data['ticketAge'] =  (time() - $_SESSION['wwpass_ticket_creation_time']);
 
+        $this->updateLastSeen();
+
         return ['status' => 'Ok', 'data' => $data];
     }
 
@@ -587,7 +472,6 @@ class User
     {
 
         $SafeID = (string)$SafeID;
-        Utils::err('Hello 1 safe ' . $SafeID);
         $role = false;
 
 // get user groups
@@ -596,15 +480,10 @@ class User
 
             foreach($user_groups as $group) {
 
-                // Utils::err($group);
-                Utils::err('Hello 2 group ' . $group->GroupID, " SafeID " . $SafeID);
 
                 $safe_access = $this->mng->safe_groups->find(["GroupID" => $group->GroupID, "SafeID" => $SafeID]);
                 foreach($safe_access as $access) {
-                    Utils::err('Safe group');
-                    Utils::err($access);
                     $role = self::getBestRole($role, $access->role);
-                    Utils::err('role 565 ' . $role);
                 }
             }
         }
@@ -624,7 +503,6 @@ class User
                 return $role;
             }
         }
-        Utils::err("get_role error 575 count " . count($a) . " UserID " . $this->UserID . " SafeID " . $SafeID);
         return false;
     }
     
@@ -921,14 +799,11 @@ class User
 
         $result= $this->mng->apple_subscriptions->find(["UserID"=> $this->UserID]);
         $subscriptions = $result->toArray();
-        Utils::err("apple subscriptions: " . count($subscriptions));
         $current_period_end = 0;
         $apple=["current_period_end" => 0];
         foreach($subscriptions as $subscription) {
-            Utils::err("apple 1");
-            Utils::err($subscription);
             if($subscription["status"] == "active") {
-                Utils::err("apple 2");
+                $plan_details['subscrption_status'] = $subscription["status"];
 
                 if($subscription["current_period_end"] > $current_period_end) {
                     Utils::err("apple 3");
@@ -940,19 +815,18 @@ class User
 
         $result= $this->mng->stripe_subscriptions->find(["UserID"=> $this->UserID]);
         $subscriptions = $result->toArray();
-        Utils::err("stripe subscriptions: " . count($subscriptions));
         $current_period_end = 0;
         $stripe=["current_period_end"=> 0];
         foreach($subscriptions as $subscription) {
-            Utils::err("stripe 1");
-            Utils::err($subscription);
             if( property_exists($subscription, "status")  
-                && ($subscription["status"] == "active")
+                && (($subscription["status"] == "active")
+                ||($subscription["status"] == "cancelled"))
                 && property_exists($subscription, "current_period_end")
                 && ($subscription["current_period_end"] > $current_period_end)
             ) {
                     $stripe["current_period_end"] = $subscription["current_period_end"];
                     $current_period_end = $subscription["current_period_end"];
+                    $plan_details['subscrption_status'] = $subscription["status"];
             }
         }
 
@@ -1359,7 +1233,8 @@ class User
                     'role' => $role,
                     'encrypted_key_CSE' => $RecipientKey,
                     'eName' => $req->eName,
-                    'version' => 3
+                    'version' => 3,
+                    'sharedAt' => Date('c'),
                     ]
                 );
 
@@ -1705,3 +1580,129 @@ class User
 
 
 */
+
+
+/*
+function getPremiumDetails($mng, $UserID) {
+
+    Utils::err('getPremiumDetails');
+
+    $user = new User($mng, $UserID);
+    $profile = $user->getProfile();
+    Utils::err('profile');
+    Utils::err($profile);
+    return [];
+
+}
+
+function getPremiumDetails1($mng, $UserID) {
+
+
+
+
+    $result = [];
+
+    try {
+        $subscriptions = $mng->subscriptions->find([ 'UserID' => $UserID]);
+
+
+        $current_period_end = 0;
+        $active_subscription = true;
+
+        // we want only one subscription for user
+
+        $found = false;
+
+        foreach($subscriptions as $subscription) {
+            if($subscription->current_period_end > time()) {
+                $found = true;
+                $current_period_end = $subscription->current_period_end;
+
+                if($subscription->status == "active") {
+                    $result['autorenew'] = true;
+                }
+    //            Utils::err("susbscription:");
+    //            Utils::err(print_r($subscription, true));
+
+                if(property_exists($subscription, 'charge')) {
+    //                Utils::err("retrieving charge " . $subscription->charge);
+
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $charge = $stripe->charges->retrieve($subscription->charge, []);
+                    Utils::err("charge:");
+                    Utils::err($charge);
+                    $result['receipt_url'] = $charge->receipt_url;
+                } else if(property_exists($subscription, 'latest_invoice')) {
+                    Utils::log("scenario 2", "payment");
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $invoice = $stripe->invoices->retrieve($subscription->latest_invoice, []);
+                    if($invoice->charge) {
+                        $charge = $stripe->charges->retrieve($invoice->charge, []);
+                        $result['receipt_url'] = $charge->receipt_url;
+
+                        $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
+                            "charge" => $invoice->charge,
+                        ]]);
+
+                    }
+                } else {
+                    Utils::log("scenario 3", "payment");
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $s = $stripe->subscriptions->retrieve($subscription->subscription); // subscription ID actually
+                    $invoice = $stripe->invoices->retrieve($s->latest_invoice, []);
+                    $charge = $stripe->charges->retrieve($invoice->charge, []);
+                    if($charge) {
+                        $result['receipt_url'] = $charge->receipt_url;
+                    }
+
+                    $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
+                        "latest_invoice" => $s->latest_invoice,
+                        "charge" => $invoice->charge,
+                    ]]);
+                }
+                $result['expires'] = $current_period_end;  
+            }
+        }
+        if($found) {
+            return $result;
+        }
+
+        $user = new User($mng, $UserID);
+        $profile = $user->getProfile();
+        if(isset($profile['payment_id'])) {
+            $cursor = $mng->payments->find(["csID" => $profile['payment_id']]);
+            $payments = $cursor->ToArray();
+            if(count($payments) == 1) {
+                if(isset($payments[0]['subscription'])) {
+                    Utils::err($payments[0]['subscription']);
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $object = $stripe->subscriptions->retrieve($payments[0]['subscription']);
+                    Utils::err('got subscription');
+                    $r = $mng->subscriptions->insertOne(
+                            [
+                            'UserID' => $payments[0]->UserID,
+                            'subscription' => $object->id,
+                            'customer' => $object->customer,
+                            'current_period_end' => $object->current_period_end,
+                            'status' => $object->status,
+                            'latest_invoice' => $object->latest_invoice, 
+                            ]
+                        );
+                    if($object['current_period_end']  > time()) {
+                        return getPremiumDetails($mng, $UserID);
+                    }
+                }
+            } 
+        }
+        return [];
+    } catch (\Exception $e) {
+        Utils::err("getPremiumDetails exception");
+        Utils::err($e->getMessage());
+        return [];
+    }
+}
+
+
+
+*/
+
