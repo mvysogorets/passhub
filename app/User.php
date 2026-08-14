@@ -15,109 +15,6 @@
 
 namespace PassHub;
 
-function getPremiumDetails($mng, $UserID) {
-
-    $result = [];
-
-    try {
-        $subscriptions = $mng->subscriptions->find([ 'UserID' => $UserID]);
-
-
-        $current_period_end = 0;
-        $active_subscription = true;
-
-        // we want only one subscription for user
-
-        $found = false;
-
-        foreach($subscriptions as $subscription) {
-            if($subscription->current_period_end > time()) {
-                $found = true;
-                $current_period_end = $subscription->current_period_end;
-
-                if($subscription->status == "active") {
-                    $result['autorenew'] = true;
-                }
-    //            Utils::err("susbscription:");
-    //            Utils::err(print_r($subscription, true));
-
-                if(property_exists($subscription, 'charge')) {
-    //                Utils::err("retrieving charge " . $subscription->charge);
-
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $charge = $stripe->charges->retrieve($subscription->charge, []);
-                    Utils::err("charge:");
-                    Utils::err($charge);
-                    $result['receipt_url'] = $charge->receipt_url;
-                } else if(property_exists($subscription, 'latest_invoice')) {
-                    Utils::log("scenario 2", "payment");
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $invoice = $stripe->invoices->retrieve($subscription->latest_invoice, []);
-                    if($invoice->charge) {
-                        $charge = $stripe->charges->retrieve($invoice->charge, []);
-                        $result['receipt_url'] = $charge->receipt_url;
-
-                        $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
-                            "charge" => $invoice->charge,
-                        ]]);
-
-                    }
-                } else {
-                    Utils::log("scenario 3", "payment");
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $s = $stripe->subscriptions->retrieve($subscription->subscription); // subscription ID actually
-                    $invoice = $stripe->invoices->retrieve($s->latest_invoice, []);
-                    $charge = $stripe->charges->retrieve($invoice->charge, []);
-                    if($charge) {
-                        $result['receipt_url'] = $charge->receipt_url;
-                    }
-
-                    $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
-                        "latest_invoice" => $s->latest_invoice,
-                        "charge" => $invoice->charge,
-                    ]]);
-                }
-                $result['expires'] = $current_period_end;  
-            }
-        }
-        if($found) {
-            return $result;
-        }
-
-        $user = new User($mng, $UserID);
-        $profile = $user->getProfile();
-        if(isset($profile['payment_id'])) {
-            $cursor = $mng->payments->find(["csID" => $profile['payment_id']]);
-            $payments = $cursor->ToArray();
-            if(count($payments) == 1) {
-                if(isset($payments[0]['subscription'])) {
-                    Utils::err($payments[0]['subscription']);
-                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
-                    $object = $stripe->subscriptions->retrieve($payments[0]['subscription']);
-                    Utils::err('got subscription');
-                    $r = $mng->subscriptions->insertOne(
-                            [
-                            'UserID' => $payments[0]->UserID,
-                            'subscription' => $object->id,
-                            'customer' => $object->customer,
-                            'current_period_end' => $object->current_period_end,
-                            'status' => $object->status,
-                            'latest_invoice' => $object->latest_invoice, 
-                            ]
-                        );
-                    if($object['current_period_end']  > time()) {
-                        return getPremiumDetails($mng, $UserID);
-                    }
-                }
-            } 
-        }
-        return [];
-    } catch (\Exception $e) {
-        Utils::err("getPremiumDetails exception");
-        Utils::err($e->getMessage());
-        return [];
-    }
-}
 
 class User
 {
@@ -147,6 +44,9 @@ class User
                 ['_id' => $this->_id], 
                 ['$set' =>['currentSafe' => $SafeID]]
             );
+
+            $this->mng->safe_users->updateOne(['SafeID' => $SafeID, 'UserID'=> $this->UserID], 
+                ['$unset' =>['sharedAt' => '']]);
         }
     }
 
@@ -180,6 +80,29 @@ class User
             }
         }
         $this->profile = $profile;
+
+
+        // apple_subscriptions 
+        
+        $mng_res = $this->mng->apple_subscriptions->find(['UserID'=> $this->UserID]);
+        $res_array = $mng_res->ToArray();
+        if (count($res_array) == 1) {
+            $apple_subscription = $res_array[0];
+
+            if(property_exists($apple_subscription, 'status') && ($apple_subscription->status == 'active'))  {
+                if(property_exists($apple_subscription, 'current_period_end')) {
+                    $current_period_end = $apple_subscription->current_period_end;
+                    if(is_int($current_period_end)) {
+                        if($current_period_end > time()) {
+                            Utils::err('apple subscritption active');
+                            Utils::err($current_period_end . " > " . time());
+                        } else {
+                            Utils::err('apple subscritption expired');
+                        }
+                    }
+                } 
+            }
+        }
         return $profile;
     }
 
@@ -250,18 +173,17 @@ class User
     // find which group has  higher access rights
     public function isBetterGroup($the_group, $outher_group) { 
 
-        if($the_group->role == 'can edit') {  // highest possible group role
+        if($the_group->role == self::ROLE_EDITOR) {  // highest possible group role
             return true;
         }
-
-        if($other_group->role == 'can edit') {
+        if($other_group->role == self::ROLE_EDITOR) { 
             return false;
         }
-        if($the_group->role == 'can view') {
+        if($the_group->role == self::ROLE_READONLY) {  // highest possible group role
             return true;
         }
         
-        if($other_group->role == 'can view') {
+        if($other_group->role == self::ROLE_READONLY) {
             return false;
         }
         return true;
@@ -289,6 +211,9 @@ class User
         
             $safe_users = $this->mng->safe_users->find([ 'SafeID' => $row->SafeID])->toArray(); 
             $safe_array[$id]->user_count = count($safe_users);
+            if(property_exists($row, 'sharedAt')) {
+                $safe_array[$id]->sharedAt = $row->sharedAt;
+            }
         } 
 
         $mng_res = $this->mng->group_users->find([ 'UserID' => $this->UserID]);
@@ -307,13 +232,9 @@ class User
                         "version" => $s->version,
                         "name" => "error"
                     ];
-#                Utils::err('safe ' . $s->SafeID);
-#                Utils::err($safe);
                 if(!isset($safe_array[$s->SafeID])) {
-#                    Utils::err('to be inserted');
                     $safe_array[$s->SafeID] = $safe;
                 } else {
-#                    Utils::err('direct access'); // or other group
                     if(isset($safe_array[$s->SafeID]->group)) {
                         if(isBetterGroup($group, $safe_array[$s->SafeID]->group)) {
                             $safe_array[$s->SafeID]->group = $group;
@@ -379,6 +300,10 @@ class User
                 "users" => $safe->user_count,
                 "user_role" => $safe->user_role
             ];
+            if(property_exists($safe, 'sharedAt')) {
+                $safe_entry['sharedAt'] = $safe->sharedAt;
+            }
+
 
             if( property_exists($safe,"version") && ($safe->version == 3)) {
 		
@@ -401,7 +326,6 @@ class User
     public function getData() {
         
         $t0 = microtime(true);
-        
         $this->getProfile();
 
         $dt = number_format((microtime(true) - $t0), 3);
@@ -416,7 +340,6 @@ class User
         $dt = number_format((microtime(true) - $t0), 3);
         Utils::timingLog("getSafes " . $dt);
 
-
         $data = [
             'publicKeyPem' => $this->profile->publicKey_CSE,
             // 'invitation_accept_pending' => $this->invitation_accept_pending,
@@ -428,26 +351,21 @@ class User
 
 //            'safes' => $this->getSafes(),
             'ticket' => $_SESSION['wwpass_ticket'],
+            'lastSeen' => $this->profile->lastSeen,
 //            'plan' => $this->profile->plan
         ];
-        if (defined('THEME') ) {
-            $data['theme'] = "disabled";
-        } else if(property_exists($this->profile, 'theme')) {
-            $data['theme'] = $this->profile->theme;
-        }
 
-        $groups  = $this->getGroups();
-        if(count($groups)) {
-            $data['groups'] = $groups;
-        }
-
-        $data = array_merge($data, $this->getPlanDetails());
 
         if (defined('PUBLIC_SERVICE') && PUBLIC_SERVICE) {
             $data['business'] = false;
             if (Survey::showStatus($this)) {
                 $data['takeSurvey'] = true;
             }
+            if(property_exists($this->profile,"expires")) {
+                $data['expires'] = $this->profile->expires;
+            }
+            $data = array_merge($data, $this->getPlanDetails());
+
         } else {
             $data['business'] = true;
             if (defined('HIDDEN_PASSWORDS_ENABLED') && HIDDEN_PASSWORDS_ENABLED) {
@@ -456,17 +374,31 @@ class User
             if(defined('MSP') && MSP  && !isset($this->profile->company)) {
                 $data['msp'] = true;
             }
+            $groups  = $this->getGroups();
+            if(count($groups)) {
+                $data['groups'] = $groups;
+            }
+
+            if($this->isSiteAdmin()) {
+                $data['site_admin'] = true;
+            }        
+            if (defined('MAIL_DOMAIN') || defined('LDAP') || defined('GOOGLE_IAM')) {
+                $data['shareModal'] = "#shareByMailModal";
+            } else {
+                $data['shareModal'] = "#safeShareModal";
+            }
+        }
+
+        if (defined('THEME') ) {
+            $data['theme'] = "disabled";
+        } else if(property_exists($this->profile, 'theme')) {
+            $data['theme'] = $this->profile->theme;
         }
 
         if (array_key_exists('folder', $_GET)) {
             $data['active_folder'] = $_GET['folder'];
         } else {
             $data['active_folder'] = 0;
-        }
-        if (defined('MAIL_DOMAIN') || defined('LDAP') || defined('GOOGLE_IAM')) {
-            $data['shareModal'] = "#shareByMailModal";
-        } else {
-            $data['shareModal'] = "#safeShareModal";
         }
         if (WWPASS_LOGOUT_ON_KEY_REMOVAL 
             && array_key_exists('PUID', $_SESSION)
@@ -476,11 +408,6 @@ class User
         } else {
             $data['onkeyremoval'] = false;
         }
-
-        if($this->isSiteAdmin()) {
-            $data['site_admin'] = true;
-        }        
-
         if(property_exists($this->profile, 'generator')) {
             $data['generator'] = $this->profile->generator;
         }
@@ -496,6 +423,8 @@ class User
         $data['idleTimeout'] = $this->profile->desktop_inactivity;
         $data['desktop_inactivity'] = $this->profile->desktop_inactivity;
         $data['ticketAge'] =  (time() - $_SESSION['wwpass_ticket_creation_time']);
+
+        $this->updateLastSeen();
 
         return ['status' => 'Ok', 'data' => $data];
     }
@@ -519,48 +448,77 @@ class User
         return $hex_crypted;
     }
 
+
+    public static function getBestRole($role1, $role2) {
+
+        Utils::err('GetBestRole role1 ' . $role1 . ' role2 ' . $role2);
+
+        if(($role1 == self::ROLE_ADMINISTRATOR) || ($role2 == self::ROLE_ADMINISTRATOR)) {
+            return self::ROLE_ADMINISTRATOR;            
+        }
+
+        if(($role1 == self::ROLE_EDITOR)  || ($role2 == self::ROLE_EDITOR)){
+            return self::ROLE_EDITOR; 
+        }
+
+        if(($role1 == self::ROLE_READONLY)  || ($role2 == self::ROLE_READONLY)) {
+           return self::ROLE_READONLY;
+        }
+
+        if(($role1 == self::ROLE_LIMITED_READONLY) || ($role2 == self::ROLE_LIMITED_READONLY)) {
+            return "limited view";
+        }
+        return $role1;
+    }
+
     public function getUserRole($SafeID)
     {
+
         $SafeID = (string)$SafeID;
-    
+        $role = false;
+
+// get user groups
+        if(!defined('PUBLIC_SERVICE') || !PUBLIC_SERVICE ) {    
+            $user_groups = $this->mng->group_users->find(['UserID' => $this->UserID]);
+
+            foreach($user_groups as $group) {
+
+
+                $safe_access = $this->mng->safe_groups->find(["GroupID" => $group->GroupID, "SafeID" => $SafeID]);
+                foreach($safe_access as $access) {
+                    $role = self::getBestRole($role, $access->role);
+                }
+            }
+        }
+
+// try direct access        
+
         $cursor = $this->mng->safe_users->find(['SafeID' => $SafeID, 'UserID' => $this->UserID]);
         $a = $cursor->toArray();
-        if (count($a) != 1) {
-            Utils::err("get_role error 134 count " . count($a) . " UserID " . $this->UserID . " SafeID " . $SafeID);
-            return false;
+        if (count($a) == 1) {
+            $row = $a[0];
+            // $safe = new Safe($a[0]);
+            return self::getBestRole($row->role, $role);
         }
-        $row = $a[0];
-        $safe = new Safe($row);
-    
-        if ($safe->isConfirmed() == false) {
-            return false;
+        
+        if (count($a) == 0) {
+            if($role != "not set") {
+                return $role;
+            }
         }
-        return $row->role;
+        return false;
     }
     
     public function canWrite($SafeID)
     {
         $role = $this->getUserRole($SafeID);
+        Utils::err("CanWrite role: " . $role);
+
         if(($role == self::ROLE_ADMINISTRATOR)  || ($role == self::ROLE_EDITOR)) {
+            Utils::err("CanWrite: true");
             return true;
         }
-
-        // TODO: check if a user is a group member
-
-        $mng_res = $this->mng->safe_groups->find(['SafeID' => $SafeID ]);
-        $mng_rows = $mng_res->toArray();
-        foreach($mng_rows as $group) {
-#            Utils::err("group ");
-#            Utils::err($group);
-
-            // TODO: editor => self::ROLE_EDITOR
-
-            if($group->role == "can edit") {
-#                Utils::err("can write returns true");
-                return true;
-            }
-        }
-#        Utils::err("can write returns false");
+        Utils::err("CanWrite: false");
         return false;
     }
     
@@ -830,48 +788,90 @@ class User
 
     function getPlanDetails() {
 
-        $result = [];
+        // business or premium account
+        $plan_details= ['maxStorage' =>  MAX_STORAGE_PER_USER,
+                'maxRecords' => MAX_RECORDS_PER_USER,
+                'maxFileSize' => MAX_FILE_SIZE
+        ];
     
         if(!defined('PUBLIC_SERVICE') || !PUBLIC_SERVICE) {
-            $result['maxStorage'] = MAX_STORAGE_PER_USER;
-            $result['maxRecords'] = MAX_RECORDS_PER_USER;
-            $result['maxFileSize'] = MAX_FILE_SIZE;
-            return $result;
+            return $plan_details;
         }
     
-        if (property_exists($this->profile, 'plan')) {
-            if ($this->profile->plan == 'Premium') {
-                $result = getPremiumDetails($this->mng, $this->UserID);
-                $result['maxRecords'] = MAX_RECORDS_PER_USER;
-                $result['maxStorage'] = MAX_STORAGE_PER_USER;
-                $result['maxFileSize'] = MAX_FILE_SIZE;
-                $result['plan'] = 'PREMIUM';
-                return $result;
+        // check apple subscription
+
+        $result= $this->mng->apple_subscriptions->find(["UserID"=> $this->UserID]);
+        $subscriptions = $result->toArray();
+        $current_period_end = 0;
+        $apple=["current_period_end" => 0];
+        foreach($subscriptions as $subscription) {
+            if($subscription["status"] == "active") {
+                $plan_details['subscrption_status'] = $subscription["status"];
+
+                if($subscription["current_period_end"] > $current_period_end) {
+                    Utils::err("apple 3");
+                    $apple["current_period_end"] = $subscription["current_period_end"];
+                    $current_period_end = $subscription["current_period_end"];
+                }        
             }
+        }
+
+        $result= $this->mng->stripe_subscriptions->find(["UserID"=> $this->UserID]);
+        $subscriptions = $result->toArray();
+        $current_period_end = 0;
+        $stripe=["current_period_end"=> 0];
+        foreach($subscriptions as $subscription) {
+            if( property_exists($subscription, "status")  
+                && (($subscription["status"] == "active")
+                ||($subscription["status"] == "cancelled"))
+                && property_exists($subscription, "current_period_end")
+                && ($subscription["current_period_end"] > $current_period_end)
+            ) {
+                    $stripe["current_period_end"] = $subscription["current_period_end"];
+                    $current_period_end = $subscription["current_period_end"];
+                    $plan_details['subscrption_status'] = $subscription["status"];
+            }
+        }
+
+        if(($apple["current_period_end"] > 0) || ($stripe["current_period_end"] >0)) {
+            if($apple["current_period_end"] > $stripe["current_period_end"]) {
+                $plan_details["current_period_end"] = $apple["current_period_end"];
+                $plan_details["plan"] = "PREMIUM";
+                $plan_details["paymentProcessor"] = "apple";
+            } 
+            if($apple["current_period_end"] < $stripe["current_period_end"]) {
+                $plan_details["current_period_end"] = $stripe["current_period_end"];
+                $plan_details["plan"] = "PREMIUM";
+                $plan_details["paymentProcessor"] = "stripe";
+            }
+            Utils::err("plan_details");
+            Utils::err($plan_details);
+            $plan_details['expires'] = $plan_details["current_period_end"];
+            return $plan_details;
+        }
+
+        if (property_exists($this->profile, 'plan')) {
             
             for($i = 0; $i < count(FREE); $i++) {
                 if(!strcasecmp($this->profile->plan, FREE[$i]['NAME'])) {
-                    $result['maxRecords'] = FREE[$i]['MAX_RECORDS'];
-                    $result['maxStorage'] = FREE[$i]['MAX_STORAGE'];
-                    $result['maxFileSize'] = FREE[$i]['MAX_FILE_SIZE'];
-                    $result['upgrade'] = [
+                    $plan_details['maxRecords'] = FREE[$i]['MAX_RECORDS'];
+                    $plan_details['maxStorage'] = FREE[$i]['MAX_STORAGE'];
+                    $plan_details['maxFileSize'] = FREE[$i]['MAX_FILE_SIZE'];
+                    $plan_details['upgrade'] = [
                         'maxStorage' => MAX_STORAGE_PER_USER,
                         'maxRecords' => MAX_RECORDS_PER_USER,
                         'maxFileSize' => MAX_FILE_SIZE,
                         'price' => PREMIUM[0]['PRICE']
                     ];
-                    // $result['plan'] = 'FREE';
-                    $result['plan'] = $this->profile->plan;
-                    return $result;
+                    // $plan_details['plan'] = 'FREE';
+                    $plan_details['plan'] = $this->profile->plan;
+                    return $plan_details;
                 }
             }
         }
-        
-        $result['plan'] = 'PREMIUM';
-        $result['maxStorage'] = MAX_STORAGE_PER_USER;
-        $result['maxRecords'] = MAX_RECORDS_PER_USER;
-        $result['maxFileSize'] = MAX_FILE_SIZE;
-        return $result;
+        // if no free plan found: 
+        $plan_details['plan'] = 'PREMIUM';
+        return $plan_details;
     }
     
     public function account($req = null) {
@@ -1115,51 +1115,6 @@ class User
             return "group safe, siteadmin";
         }
 
-//        if (!$this->isAdmin($SafeID)) {
-//            return "unsubscribe";
-//        }
-
-/*
-        # search the safe in my groups
-
-        $mng_res = $this->mng->group_users->find([ 'UserID' => $this->UserID]);
-
-        $group_role = "";
-        foreach ($mng_res as $group) {
-            $group_safes = $this->mng->safe_groups->find([ 'GroupID' => $group->GroupID])->toArray(); 
-
-            Utils::err('group ' . $group->GroupID . ' safes');
-            Utils::err($group_safes);
-
-
-            foreach($group_safes as $s) {
-                if( $s->SafeID = $SafeID ) {
-                    // found 
-                    if($s->role == "owner") {
-                        $group_role = "owner";
-                    } else if($group_role != "owner") {
-                        if($s->role == "can edit") {
-                               $group_role = "can edit";
-                        } else if ($s->role != "can edit") {
-                            if($s->role == "can view") {
-                                $group_role = "can view";
-                            } else {
-                                $group_role = "limited_view";
-                            }
-                         }
-                    }
-                }
-            }
-        }
-
-        if($group_role != "") {
-            return [
-                'status' => "Ok",
-                'group_role' => $group_role
-            ];
-        }
-*/
-
         $myrole = $this->getUserRole($SafeID);
         if (!$myrole) {
             return "error 1157";
@@ -1281,7 +1236,8 @@ class User
                     'role' => $role,
                     'encrypted_key_CSE' => $RecipientKey,
                     'eName' => $req->eName,
-                    'version' => 3
+                    'version' => 3,
+                    'sharedAt' => Date('c'),
                     ]
                 );
 
@@ -1627,3 +1583,129 @@ class User
 
 
 */
+
+
+/*
+function getPremiumDetails($mng, $UserID) {
+
+    Utils::err('getPremiumDetails');
+
+    $user = new User($mng, $UserID);
+    $profile = $user->getProfile();
+    Utils::err('profile');
+    Utils::err($profile);
+    return [];
+
+}
+
+function getPremiumDetails1($mng, $UserID) {
+
+
+
+
+    $result = [];
+
+    try {
+        $subscriptions = $mng->subscriptions->find([ 'UserID' => $UserID]);
+
+
+        $current_period_end = 0;
+        $active_subscription = true;
+
+        // we want only one subscription for user
+
+        $found = false;
+
+        foreach($subscriptions as $subscription) {
+            if($subscription->current_period_end > time()) {
+                $found = true;
+                $current_period_end = $subscription->current_period_end;
+
+                if($subscription->status == "active") {
+                    $result['autorenew'] = true;
+                }
+    //            Utils::err("susbscription:");
+    //            Utils::err(print_r($subscription, true));
+
+                if(property_exists($subscription, 'charge')) {
+    //                Utils::err("retrieving charge " . $subscription->charge);
+
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $charge = $stripe->charges->retrieve($subscription->charge, []);
+                    Utils::err("charge:");
+                    Utils::err($charge);
+                    $result['receipt_url'] = $charge->receipt_url;
+                } else if(property_exists($subscription, 'latest_invoice')) {
+                    Utils::log("scenario 2", "payment");
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $invoice = $stripe->invoices->retrieve($subscription->latest_invoice, []);
+                    if($invoice->charge) {
+                        $charge = $stripe->charges->retrieve($invoice->charge, []);
+                        $result['receipt_url'] = $charge->receipt_url;
+
+                        $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
+                            "charge" => $invoice->charge,
+                        ]]);
+
+                    }
+                } else {
+                    Utils::log("scenario 3", "payment");
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $s = $stripe->subscriptions->retrieve($subscription->subscription); // subscription ID actually
+                    $invoice = $stripe->invoices->retrieve($s->latest_invoice, []);
+                    $charge = $stripe->charges->retrieve($invoice->charge, []);
+                    if($charge) {
+                        $result['receipt_url'] = $charge->receipt_url;
+                    }
+
+                    $mng->subscriptions->updateOne(["subscription" => $subscription->subscription], ['$set'=>[
+                        "latest_invoice" => $s->latest_invoice,
+                        "charge" => $invoice->charge,
+                    ]]);
+                }
+                $result['expires'] = $current_period_end;  
+            }
+        }
+        if($found) {
+            return $result;
+        }
+
+        $user = new User($mng, $UserID);
+        $profile = $user->getProfile();
+        if(isset($profile['payment_id'])) {
+            $cursor = $mng->payments->find(["csID" => $profile['payment_id']]);
+            $payments = $cursor->ToArray();
+            if(count($payments) == 1) {
+                if(isset($payments[0]['subscription'])) {
+                    Utils::err($payments[0]['subscription']);
+                    $stripe = new \Stripe\StripeClient(STRIPE['key']);
+                    $object = $stripe->subscriptions->retrieve($payments[0]['subscription']);
+                    Utils::err('got subscription');
+                    $r = $mng->subscriptions->insertOne(
+                            [
+                            'UserID' => $payments[0]->UserID,
+                            'subscription' => $object->id,
+                            'customer' => $object->customer,
+                            'current_period_end' => $object->current_period_end,
+                            'status' => $object->status,
+                            'latest_invoice' => $object->latest_invoice, 
+                            ]
+                        );
+                    if($object['current_period_end']  > time()) {
+                        return getPremiumDetails($mng, $UserID);
+                    }
+                }
+            } 
+        }
+        return [];
+    } catch (\Exception $e) {
+        Utils::err("getPremiumDetails exception");
+        Utils::err($e->getMessage());
+        return [];
+    }
+}
+
+
+
+*/
+
