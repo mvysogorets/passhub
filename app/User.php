@@ -44,6 +44,9 @@ class User
                 ['_id' => $this->_id], 
                 ['$set' =>['currentSafe' => $SafeID]]
             );
+
+            $this->mng->safe_users->updateOne(['SafeID' => $SafeID, 'UserID'=> $this->UserID], 
+                ['$unset' =>['sharedAt' => '']]);
         }
     }
 
