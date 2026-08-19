@@ -5,3 +5,6 @@ vendor/
 node_modules/
 helpers
 tests_output
+*.tgz
+passhub-backend/*
+
