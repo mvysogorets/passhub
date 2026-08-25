@@ -62,12 +62,30 @@ class Item
             $js = json_decode($item);
             if ($js !== null) {
 
-                if (isset($js->version) && (($js->version == 3)|| ($js->version == 4) || ($js->version == 5)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
+                if (isset($js->version) && (($js->version == 3)|| ($js->version == 4) || ($js->version == 5)  || ($js->version == 6)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
                     $record = [];
                     $record['SafeID'] = $SafeID;
                     $js = (array)$js;
                     $record = $record + $js;
                     $record['folder'] = $folder;
+
+                    // Validation for passkey (version 6)
+                    if ($js['version'] == 6 && isset($js['type']) && $js['type'] === 'passkey') {
+                        if (!isset($js['passkey']) || !is_object($js['passkey'])) {
+                            Utils::err("Passkey data missing or invalid");
+                            return ('Invalid passkey structure');
+                        }
+                        $passkey = (array)$js['passkey'];
+                        $required_fields = ['credentialId', 'privateKey', 'publicKey', 'userHandle', 'counter', 'rpId'];
+                        foreach ($required_fields as $field) {
+                            if (!isset($passkey[$field])) {
+                                Utils::err("Passkey missing field: $field");
+                                return ("Invalid passkey: missing $field");
+                            }
+                        }
+                        $record['passkey'] = $passkey;
+                    }
+
                     if (!isset($record['lastModified'])) {
                         $record['lastModified'] = Date('c');
                     }
@@ -187,14 +205,27 @@ class Item
                 }
             }
 
-            if (isset($js->version) && (($js->version == 3) || ($js->version == 4)  || ($js->version == 5)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
+            if (isset($js->version) && (($js->version == 3) || ($js->version == 4)  || ($js->version == 5) || ($js->version == 6)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
+                $updateData = [
+                    'iv' => $js->iv,
+                    'data' => $js->data,
+                    'tag' => $js->tag,
+                    'lastModified' => Date('c'),
+                    'version' => $js->version
+                ];
+
+                if ($js->version == 6 && isset($js->type) && $js->type === 'passkey' && isset($js->passkey)) {
+                    $updateData['type'] = 'passkey';
+                    $updateData['passkey'] = (array)$js->passkey;
+
+                    if (isset($js->passkey->counter)) {
+                        $updateData['passkey']['counter'] = $js->passkey->counter;
+                    }
+                }
+
                 $result = $this->mng->safe_items->updateOne(
-                    ['_id' => $this->_id], 
-                    ['$set' => ['iv' => $js->iv,
-                        'data' => $js->data,
-                        'tag' => $js->tag,
-                        'lastModified' =>Date('c'),
-                        'version' => $js->version]]
+                    ['_id' => $this->_id],
+                    ['$set' => $updateData]
                 );
             } else {
                 Utils::err(print_r($js, true));
@@ -289,7 +320,7 @@ class Item
         $js = json_decode($data);
         if ($js !== null) {
             if (isset($js->version) 
-                && (($js->version == 3) || ($js->version == 4) || ($js->version == 5))  
+                && (($js->version == 3) || ($js->version == 4) || ($js->version == 5) || ($js->version == 6))  
                 && isset($js->iv) 
                 && isset($js->data) 
                 && isset($js->tag)
@@ -313,6 +344,10 @@ class Item
                 }
                 if (isset($js->file)) {
                     $record['file'] = $js->file;
+                }
+                if (isset($js->type) && $js->type === 'passkey' && isset($js->passkey)) {
+                    $record['type'] = 'passkey';
+                    $record['passkey'] = (array)$js->passkey;
                 }
 
                 if ($operation == "move") {
