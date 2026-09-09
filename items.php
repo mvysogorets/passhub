@@ -74,8 +74,15 @@ function items_proxy($mng) {
     $encrypted_data = $req->encrypted_data;
 
     if (isset($req->entryID)) { // update
+        $expectedRevision = null;
+        if (isset($req->expectedRevision)) {
+            if (!is_int($req->expectedRevision) || $req->expectedRevision < 0) {
+                return "Bad Request";
+            }
+            $expectedRevision = $req->expectedRevision;
+        }
         $item = new Item($mng, trim($req->entryID));
-        return $item->update($UserID, $SafeID, $encrypted_data);
+        return $item->update($UserID, $SafeID, $encrypted_data, $expectedRevision);
     }
 
     $folder = isset($req->folder)? $req->folder : 0;
