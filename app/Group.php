@@ -108,7 +108,7 @@ class Group
     }
 
     static public function addSafe($mng, $req) {
-        $role = isset($req->role) ? $req->role :  "can view";
+        $role = isset($req->role) ? $req->role :  "readonly";
         $mng->safe_groups->insertOne(
             [
             'SafeID' => $req->SafeID, 

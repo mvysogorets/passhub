@@ -121,9 +121,12 @@ function registration_proxy($mng, $email) {
     if (isset($req->host)) {
         $hostname = str_replace("passhub", "PassHub", $req->host);
     }
+
+    $h1 = "<h1>" . $_SERVER['SERVER_NAME'] . "</h1>";
     $cta = "<p> Your 6-digit activation code is</p><p><b>". $result['code6'] . "</b></p>";
 
-    $body = $cta 
+    $body = $h1 . $cta 
+    . "<p>If you didn’t request a verification code for the account linked to " . $email . ", you can ignore this email</p>"
     . "<p>Best regards, <br>PassHub Team.</p>"; 
 
     $result = Utils::sendMail($email, $subject, $body);

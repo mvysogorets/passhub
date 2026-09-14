@@ -89,7 +89,7 @@ define(
 ```
 (&(uid=username)(memberof=cn=passhub-user-group,ou=Groups,dc=xxxx,dc=com))  
 ```
-where the `username` is a part of th euser mail before @ character
+where the `username` is a part of the user mail before @ character
 
 Passhub detects Google workspace by LDAP url and behaves appropriately (thus making `mail_registration` setting redundant): 
 

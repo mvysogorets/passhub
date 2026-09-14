@@ -31,6 +31,19 @@ class Utils
         return $twig->render($template, $context);        
     }
 
+    public static function render_react(string $template, array $context = []): string
+    {
+        $loader = new \Twig\Loader\FilesystemLoader('frontend');
+        $twig = new \Twig\Environment(
+            $loader, 
+            [
+                // 'cache' => 'views/cache',
+                'cache' => false,
+            ]
+        );
+        return $twig->render($template, $context);        
+    }
+
     public static function log($message, $logname = "passhub", $logext = "log") {
 
         if(is_array($message)) {
@@ -80,6 +93,15 @@ class Utils
             } catch (Exception $e) {
                 // Log error but don't fail the audit logging
                 self::err("CrowdStrike SIEM integration error: " . $e->getMessage());
+            }
+
+            // Send to Microsoft Sentinel if configured
+            try {
+                $sentinelSiem = new MicrosoftSentinelSiem();
+                $sentinelSiem->sendAuditEvent($record);
+            } catch (Exception $e) {
+                // Log error but don't fail the audit logging
+                self::err("Microsoft Sentinel integration error: " . $e->getMessage());
             }
             
         } else {
@@ -183,19 +205,6 @@ class Utils
         $ticket = $_SESSION['wwpass_ticket'];
         $privKey = $wwc->readData($ticket);
         return $privKey;
-    }
-
-    public static function render_react(string $template, array $context = []): string
-    {
-        $loader = new \Twig\Loader\FilesystemLoader('frontend');
-        $twig = new \Twig\Environment(
-            $loader, 
-            [
-                // 'cache' => 'views/cache',
-                'cache' => false,
-            ]
-        );
-        return $twig->render($template, $context);        
     }
 
 
@@ -373,4 +382,38 @@ class Utils
         }
         return self::sendLocalServer($to, $subject, $body, 'text/html; charset=UTF-8');
     }
+
+    public static function sendTelegramMessage($message) {
+        if(!defined('TELEGRAM_BOT')) {
+            return;
+        }
+        $data = TELEGRAM_BOT['data'];
+        $data['text'] = $message;
+
+        $json = json_encode($data);
+
+        $ch = curl_init(TELEGRAM_BOT['url']);
+
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $json,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($json)
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+
+        $response = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            Utils::err('cURL Error: ' . curl_error($ch));
+        } else {
+            Utils::err("Response:");
+            Utils::err($response);
+        }
+        curl_close($ch);
+    }
+
 }

@@ -47,6 +47,15 @@ function ldap_proxy() {
     ldap_set_option($ds, LDAP_OPT_REFERRALS, 0);
     ldap_set_option($ds, LDAP_OPT_NETWORK_TIMEOUT, 10);
 
+
+    if(isset(LDAP['LDAP_OPT_X_TLS_KEYFILE'])) {
+        ldap_set_option($ds, LDAP_OPT_X_TLS_KEYFILE, LDAP['LDAP_OPT_X_TLS_KEYFILE']);
+    }
+
+    if(isset(LDAP['LDAP_OPT_X_TLS_CERTFILE'])) {
+        ldap_set_option($ds, LDAP_OPT_X_TLS_CERTFILE, LDAP['LDAP_OPT_X_TLS_CERTFILE']);
+    }
+
     if(!$ds) {
         Utils::err(" error 1070 ldapConnect fail");
         return "LDAP Connect fail, please contact your system administrator";

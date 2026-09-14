@@ -306,7 +306,7 @@ abstract class File
         if ($req->operation == 'download') {
 
             if ($user->canRead($SafeID) == false) {
-                Utils::err("error itm 335 role = '$role'");
+                Utils::err("error itm 335");
                 return "Internal server error 335";
             }
     

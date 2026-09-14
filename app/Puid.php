@@ -55,10 +55,12 @@ class Puid
                 return ["status" => "not found"];
             }
             if ($num_puids == 1) {
+                /*
                 if($last_seen_update) {
                     $user = new User($this->mng, $puids[0]->UserID);
                     $user->updateLastSeen();
                 }
+                    */
                 return ["UserID" => $puids[0]->UserID, "status" => "Ok"];
             }
         }

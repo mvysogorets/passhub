@@ -83,6 +83,11 @@ try {
         $result = $puid->getUserByPuid();
         if ($result['status'] == "not found") {
 
+            if(defined('SAML')) {
+                PassHub\SAML::Authenticate();
+    		    exit();
+            }
+
             if(defined('AZURE')) {
                 PassHub\Azure::Authenticate();
     		    exit();
@@ -111,6 +116,11 @@ try {
             } 
             
             if (defined('PUBLIC_SERVICE') && (PUBLIC_SERVICE == true)) {
+                if (!isset($_SESSION['backupAdviseShown'])) {
+                    header("Location: backup-your-key.php");
+                    exit();
+                } 
+
                 if (!isset($_SESSION['TermsAccepted'])) {
                     header("Location: accept_terms.php");
                     exit();
@@ -285,7 +295,7 @@ try {
     Utils::err(get_class($e));
     Utils::err($err_msg);
     // return 500
-    Utils::errorPage("Internal server error idx 159");
+    Utils::errorPage("Internal server error idx 298");
 }
 
 if (isset($_SESSION['expired'])) {

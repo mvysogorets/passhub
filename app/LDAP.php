@@ -172,7 +172,7 @@ class LDAP
         
         $ldap_filter = "(&{$user_filter}{$group_filter})";
 
-        Utils::err('ldap_filter {$ldap_filter}');
+        Utils::err("ldap_filter {$ldap_filter}");
         
         // Handle multiple base DNs
         $all_entries = [];
@@ -303,7 +303,7 @@ class LDAP
 #                Utils::err($info);
 
 #                Utils::err('memberOf');
-            $memberOf =  $info['0']['memberOf'];
+            $memberOf =  $info['0']['memberof'];
 
 #                Utils::err($memberOf);
 
