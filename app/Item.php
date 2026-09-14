@@ -19,20 +19,18 @@ namespace PassHub;
 
 use \PassHub\Files\File;
 
-class Item 
-{
+class Item {
 
     function __construct($mng, $entryID) {
         $this->mng = $mng;
         $this->entryID = $entryID;
-        $this->_id = (strlen($this->entryID) != 24) ? $this->entryID : 
+        $this->_id = (strlen($this->entryID) != 24) ? $this->entryID :
             new \MongoDB\BSON\ObjectID($this->entryID);
     }
 
-//******************************************************************
+    //******************************************************************
 
-    private function getSafe()
-    {
+    private function getSafe() {
         $cursor = $this->mng->safe_items->find(['_id' => $this->_id]);
 
         $a = $cursor->toArray();
@@ -62,38 +60,40 @@ class Item
             $js = json_decode($item);
             if ($js !== null) {
 
-                if (isset($js->version) && (($js->version == 3)|| ($js->version == 4) || ($js->version == 5)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
+                if (isset($js->version) && (($js->version == 3) || ($js->version == 4) || ($js->version == 5)  || ($js->version == 6)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
                     $record = [];
                     $record['SafeID'] = $SafeID;
                     $js = (array)$js;
                     $record = $record + $js;
                     $record['folder'] = $folder;
+                    $record['revision'] = 1;
+
                     if (!isset($record['lastModified'])) {
                         $record['lastModified'] = Date('c');
                     }
                     array_push($records, $record);
                 } else {
                     Utils::err(print_r($js, true));
-                    return('Internal system error 91');
+                    return ('Internal system error 91');
                 }
             } else {  //version 2: data are fields hex encrypted, should not happen
                 Utils::err("wrong item format, error 95");
-                return('Internal system error 95');
+                return ('Internal system error 95');
             }
         }
         try {
             $result = $mng->safe_items->insertMany($records);
 
             if ($result->getInsertedCount() == count($items)) {
-                Utils::log('user ' . $UserID . ' activity ' .count($items) . ' item(s) created');
+                Utils::log('user ' . $UserID . ' activity ' . count($items) . ' item(s) created');
                 $firstID = (string) $result->getInsertedIds()[0];
                 return ["status" =>  "Ok", "firstID" => $firstID];
             }
             Utils::err(print_r($result, true));
-            return('Internal system error 107');
+            return ('Internal system error 107');
         } catch (Exception $e) {
             Utils::err(print_r($e, true));
-            return('Internal system error 110');
+            return ('Internal system error 110');
         }
     }
 
@@ -115,7 +115,7 @@ class Item
         if (!$user->canRead($srcSafeID)) {
             return "no src read";
         }
-        if (($operation == "move" ) && !$user->canWrite($srcSafeID)) {
+        if (($operation == "move") && !$user->canWrite($srcSafeID)) {
             return "no src write";
         }
 
@@ -125,18 +125,21 @@ class Item
 
         $srcKey = $user->getEncryptedAesKey($srcSafeID);
         $dstKey = $user->getEncryptedAesKey($dstSafeID);
-        return array("status" => "Ok", "item" => $itemData,
-        "src_key" => $srcKey,
-        "dst_key" => $dstKey);
+        return array(
+            "status" => "Ok",
+            "item" => $itemData,
+            "src_key" => $srcKey,
+            "dst_key" => $dstKey
+        );
     }
 
-    public function update($UserID, $SafeID, $data) {
+    public function update($UserID, $SafeID, $data, $expectedRevision = null) {
 
         if ($SafeID != $this->getSafe()) {
             Utils::err("error itm 356: SafeID_requested = '$SafeID', SafeID_real = " . $row->SafeID);
             return "Internal server error 356";
         }
-        $user = new User($this->mng, $UserID); 
+        $user = new User($this->mng, $UserID);
         if ($user->canWrite($SafeID) == false) {
             Utils::err("error 150 (no rights) UserID " . $UserID . " SafeID " . $SafeID);
             return "Sorry, you do not have editor rights for this safe";
@@ -145,71 +148,95 @@ class Item
         $js = json_decode($data);
         if ($js !== null) {
 
-            // history
-            $cursor = $this->mng->safe_items->find(['_id' => $this->_id]);
-            $result = $cursor->toArray();
+            // Passkey records (version 6) use revision/CAS and do not support
+            // History yet. Preserve the existing History flow for versions 3-5.
+            if (isset($js->version) && in_array($js->version, [3, 4, 5], true)) {
+                $cursor = $this->mng->safe_items->find(['_id' => $this->_id]);
+                $result = $cursor->toArray();
 
-            if(count($result)) {
-                $old_record = $result[0];
-                Utils::err("old_record");
-                Utils::err($old_record);
+                if (count($result)) {
+                    $old_record = $result[0];
+                    Utils::err("old_record");
+                    Utils::err($old_record);
 
-                if(property_exists($old_record,"iv") && 
-                    property_exists($old_record,"data") && 
-                    property_exists($old_record,"tag") && 
-                    property_exists($old_record,"lastModified") && 
-                    property_exists($old_record,"version")) {
-                    $history_record = [
-                        "iv" => $old_record["iv"], 
-                        "data" => $old_record["data"], 
-                        "tag" => $old_record["tag"],
-                        "lastModified" => $old_record["lastModified"],
-                        "version" => $old_record["version"]
-                    ];
-                    Utils::err("history_record");
-                    Utils::err($history_record);
-                    $history = [];
-                    if(property_exists($old_record,"history")) {
-                        Utils::err("history found");
-                        $history = $old_record["history"];
+                    if (
+                        property_exists($old_record, "iv") &&
+                        property_exists($old_record, "data") &&
+                        property_exists($old_record, "tag") &&
+                        property_exists($old_record, "lastModified") &&
+                        property_exists($old_record, "version")
+                    ) {
+                        $history_record = [
+                            "iv" => $old_record["iv"],
+                            "data" => $old_record["data"],
+                            "tag" => $old_record["tag"],
+                            "lastModified" => $old_record["lastModified"],
+                            "version" => $old_record["version"]
+                        ];
+                        Utils::err("history_record");
+                        Utils::err($history_record);
+                        $history = [];
+                        if (property_exists($old_record, "history")) {
+                            Utils::err("history found");
+                            $history = $old_record["history"];
 
-                        Utils::err("history");
-                        Utils::err(gettype($history));
+                            Utils::err("history");
+                            Utils::err(gettype($history));
 
-                        $history = (array) $old_record["history"];
+                            $history = (array) $old_record["history"];
 
-                        Utils::err("(array) history");
-                        Utils::err(gettype($history));
-                        Utils::err($history);
+                            Utils::err("(array) history");
+                            Utils::err(gettype($history));
+                            Utils::err($history);
+                        }
+                        array_unshift($history, $history_record);
+                        $this->mng->safe_items->updateOne(['_id' => $this->_id], ['$set' => ['history' => $history]]);
                     }
-                    array_unshift($history, $history_record);
-                    $this->mng->safe_items->updateOne(['_id' => $this->_id], ['$set' => ['history' => $history] ]);
                 }
             }
 
-            if (isset($js->version) && (($js->version == 3) || ($js->version == 4)  || ($js->version == 5)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
-                $result = $this->mng->safe_items->updateOne(
-                    ['_id' => $this->_id], 
-                    ['$set' => ['iv' => $js->iv,
-                        'data' => $js->data,
-                        'tag' => $js->tag,
-                        'lastModified' =>Date('c'),
-                        'version' => $js->version]]
-                );
+            if (isset($js->version) && (($js->version == 3) || ($js->version == 4)  || ($js->version == 5) || ($js->version == 6)) && isset($js->iv) && isset($js->data) && isset($js->tag)) {
+                $updateData = [
+                    'iv' => $js->iv,
+                    'data' => $js->data,
+                    'tag' => $js->tag,
+                    'lastModified' => Date('c'),
+                    'version' => $js->version
+                ];
             } else {
                 Utils::err(print_r($js, true));
                 return "Internal error 169";
             }
         } else {  // version 2: data are fields hex encrypted, should not happen
-            // $bulk->insert( ['SafeID' => $SafeID, 'data' => $data, 'lastModified' =>Date('c'), 'version' => 2]);
-            $result = $this->mng->safe_items->updateOne(
-                ['_id' => $this->_id], 
-                ['$set' => ['SafeID' => $SafeID,
-                'data' => $data, 
-                'lastModified' =>Date('c'), 
-                'version' => 2]]
-            );
+            $updateData = [
+                'SafeID' => $SafeID,
+                'data' => $data,
+                'lastModified' => Date('c'),
+                'version' => 2
+            ];
         }
+
+        $filter = ['_id' => $this->_id];
+        if ($expectedRevision !== null) {
+            $filter['SafeID'] = $SafeID;
+            if ($expectedRevision === 0) {
+                $filter['$or'] = [
+                    ['revision' => 0],
+                    ['revision' => ['$exists' => false]]
+                ];
+            } else {
+                $filter['revision'] = $expectedRevision;
+            }
+        }
+
+        $result = $this->mng->safe_items->updateOne(
+            $filter,
+            [
+                '$set' => $updateData,
+                '$inc' => ['revision' => 1]
+            ]
+        );
+
         // try-catch
         if ($result->getModifiedCount() == 1) {
             // readback to get folder: wish I had findOneAndUpdate
@@ -229,6 +256,9 @@ class Item
             Utils::log('user ' . $UserID . ' activity item update');
             return ['status' => "Ok", 'item' => $row];
         }
+        if ($expectedRevision !== null) {
+            return ['status' => "Conflict"];
+        }
         Utils::err(print_r($result, true));
         return "Internal error 201";
     }
@@ -236,7 +266,7 @@ class Item
     public function delete($UserID, $declaredSafeID) {
 
         $SafeID = $this->getSafe();
-        if($SafeID == -1) {
+        if ($SafeID == -1) {
             return "Record not found";
         }
         if ($SafeID != $declaredSafeID) {
@@ -288,10 +318,11 @@ class Item
         */
         $js = json_decode($data);
         if ($js !== null) {
-            if (isset($js->version) 
-                && (($js->version == 3) || ($js->version == 4) || ($js->version == 5))  
-                && isset($js->iv) 
-                && isset($js->data) 
+            if (
+                isset($js->version)
+                && (($js->version == 3) || ($js->version == 4) || ($js->version == 5) || ($js->version == 6))
+                && isset($js->iv)
+                && isset($js->data)
                 && isset($js->tag)
             ) {
 
@@ -301,7 +332,7 @@ class Item
                     'data' => $js->data,
                     'tag' => $js->tag,
                     'folder' => $dst_folder,
-                    'lastModified' =>Date('c'),
+                    'lastModified' => Date('c'),
                     'version' => $js->version
                 ];
                 if (isset($js->history)) {
@@ -317,31 +348,35 @@ class Item
 
                 if ($operation == "move") {
                     $result = $this->mng->safe_items->updateMany(
-                        ['_id' => $this->_id], 
-                        ['$set' => $record]
+                        ['_id' => $this->_id],
+                        [
+                            '$set' => $record,
+                            '$inc' => ['revision' => 1]
+                        ]
                     );
                     if ($result->getModifiedCount() == 1) {
                         Utils::log('user ' . $UserID . ' activity item move');
                         return "Ok";
                     }
                     Utils::err(print_r($result, true));
-                    return("Move internal error");
+                    return ("Move internal error");
                 }
                 // else operation = copy
-                
+
+                $record['revision'] = 1;
+
                 $result = $this->mng->safe_items->insertOne(
-                    ['SafeID' => $targetSafeID] +$record
+                    ['SafeID' => $targetSafeID] + $record
                 );
                 if ($result->getInsertedCount() == 1) {
                     Utils::log('user ' . $UserID . ' activity item copy');
                     return "Ok";
                 }
                 Utils::err(print_r($result, true));
-                return("Copy internal error");
+                return ("Copy internal error");
             }
             return "Internal error itm 317";
         }
         return "Internal error itm 319";
     }
-
 }
