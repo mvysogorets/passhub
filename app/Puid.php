@@ -180,6 +180,28 @@ class Puid
         }
         if (isset($req->import)) { 
             $user = new User($this->mng, $UserID);
+
+            // (????) set the current date to the imported template items, according to customer requiests
+
+            $now = Date('c');
+            // works for both safes and folders: each may have items and nested folders
+            $touch = function ($node) use (&$touch, $now) {
+                foreach ($node->items ?? [] as $i => $item) {
+                    // each item is a JSON string
+                    $js = json_decode($item);
+                    if ($js !== null) {
+                        $js->lastModified = $now;
+                        $node->items[$i] = json_encode($js);
+                    }
+                }
+                foreach ($node->folders ?? [] as $folder) {
+                    $touch($folder);
+                }
+            };
+            foreach ($req->import as $safe) {
+                $touch($safe);
+            }
+
             $user->importSafes($req);
         }
         if (isset($email)) {
